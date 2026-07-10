@@ -20,7 +20,7 @@ export default function GateActivityChart({ data }: { data: GateRow[] }) {
         <XAxis dataKey="date" tick={{ fontSize: 9 }} />
         <YAxis yAxisId="left" tickFormatter={(v) => v.toFixed(2)} />
         <YAxis yAxisId="right" orientation="right" tickFormatter={(v) => v.toFixed(2)} />
-        <Tooltip formatter={(value: number) => value.toFixed(2)} />
+        <Tooltip formatter={(value) => (typeof value === "number" ? value.toFixed(2) : value)} />
         <Legend />
         <Line yAxisId="left" type="monotone" dataKey="pressure_diff" stroke="#2563eb" name="Pressure Diff (psi)" />
         <Line yAxisId="right" type="monotone" dataKey="gate_activity" stroke="#dc2626" name="Gate Activity (std_ga)" />
