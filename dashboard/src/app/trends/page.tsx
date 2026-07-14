@@ -2,6 +2,7 @@ import { getWeeklyStateTrend, getClassifierDistribution } from "@/lib/queries";
 import WeeklyStateTrendChart from "@/components/WeeklyStateTrendChart";
 import ClassifierDistributionChart from "@/components/ClassifierDistributionChart";
 import Card from "@/components/Card";
+export const dynamic = "force-dynamic";
 
 export default async function TrendsPage() {
   const weeklyTrend = await getWeeklyStateTrend();
