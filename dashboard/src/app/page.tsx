@@ -3,6 +3,7 @@ import VolumeTrendChart from "@/components/VolumeTrendChart";
 import Card from "@/components/Card";
 import KpiCard from "@/components/KpiCard";
 import { TrendingDown, FlaskConical, DollarSign } from "lucide-react";
+export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const volumeTrend = await getDailyVolumeTrend();

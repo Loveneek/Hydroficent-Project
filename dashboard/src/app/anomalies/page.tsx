@@ -2,6 +2,7 @@ import { getGateActivityTrend, getDataCompleteness } from "@/lib/queries";
 import GateActivityChart from "@/components/GateActivityChart";
 import DataCompletenessChart from "@/components/DataCompletenessChart";
 import Card from "@/components/Card";
+export const dynamic = "force-dynamic";
 
 export default async function AnomaliesPage() {
   const gateActivity = await getGateActivityTrend();

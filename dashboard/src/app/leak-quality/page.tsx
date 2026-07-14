@@ -1,6 +1,7 @@
 import { getSundayLeakComparison, getDataQualitySummary } from "@/lib/queries";
 import LeakComparisonChart from "@/components/LeakComparisonChart";
 import Card from "@/components/Card";
+export const dynamic = "force-dynamic";
 
 export default async function LeakQualityPage() {
   const leakComparison = await getSundayLeakComparison();
