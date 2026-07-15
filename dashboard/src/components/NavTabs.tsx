@@ -8,6 +8,7 @@ const TABS = [
   { href: "/trends", label: "Trends & Classifier" },
   { href: "/anomalies", label: "Anomalies" },
   { href: "/leak-quality", label: "Leak & Data Quality" },
+  { href: "/findings", label: "Analysis Notes" },
 ];
 
 export default function NavTabs() {

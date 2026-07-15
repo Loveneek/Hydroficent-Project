@@ -84,3 +84,12 @@ export async function getSundayLeakComparison() {
   `);
   return result.rows;
 }
+
+export async function getHourlyPattern() {
+  const result = await pool.query(`
+    SELECT hour_of_day, inferred_state, avg_volume_l, n_days
+    FROM fact_hourly_pattern
+    ORDER BY hour_of_day, inferred_state
+  `);
+  return result.rows;
+}

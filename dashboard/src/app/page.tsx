@@ -35,11 +35,11 @@ export default async function Home() {
         />
       </section>
 
-      <Card title="Daily Water Volume — Full Pilot">
+      <Card title="Daily Water Volume — Full Pilot" findingHref="/findings#s5">
         <VolumeTrendChart data={volumeTrend} />
       </Card>
 
-      <Card title="Engaged vs. Bypassed by Era">
+      <Card title="Engaged vs. Bypassed by Era" findingHref="/findings#s9">
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="border-b border-neutral-800 text-left text-neutral-400">

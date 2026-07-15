@@ -122,11 +122,46 @@ def run_load(cfg: PipelineConfig = DEFAULT_CONFIG) -> dict:
         n_quality = load_data_quality_log(con, cfg)
         n_dim = load_dim_date(con, cfg)
         n_day = load_fact_day_summary(con)
+        n_hourly = load_fact_hourly_pattern(con)
         create_views(con)
         con.execute("CHECKPOINT")
-        return {"fact_reading_second": n_second, "data_quality_log": n_quality, "dim_date": n_dim, "fact_day_summary": n_day}
+        return {
+            "fact_reading_second": n_second,
+            "data_quality_log": n_quality,
+            "dim_date": n_dim,
+            "fact_day_summary": n_day,
+            "fact_hourly_pattern": n_hourly,
+        }
     finally:
         con.close()
+
+def load_fact_hourly_pattern(con: duckdb.DuckDBPyConnection) -> int:
+    log.info("Building fact_hourly_pattern ...")
+    con.execute("""
+        CREATE OR REPLACE TABLE fact_hourly_pattern AS
+        WITH hourly AS (
+            SELECT
+                EXTRACT(HOUR FROM r.local_ts) AS hour_of_day,
+                r.local_date,
+                fd.inferred_state,
+                sum(r.volume_delta_l) AS hour_volume_l
+            FROM fact_reading_second r
+            JOIN fact_day_summary fd USING (local_date)
+            WHERE fd.is_complete_day
+            GROUP BY 1, 2, 3
+        )
+        SELECT
+            hour_of_day,
+            inferred_state,
+            round(avg(hour_volume_l), 2) AS avg_volume_l,
+            count(*) AS n_days
+        FROM hourly
+        GROUP BY 1, 2
+        ORDER BY 1, 2
+    """)
+    n = con.execute("SELECT count(*) FROM fact_hourly_pattern").fetchone()[0]
+    log.info("fact_hourly_pattern: %s rows", n)
+    return n
 
 
 if __name__ == "__main__":

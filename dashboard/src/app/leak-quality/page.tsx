@@ -12,11 +12,12 @@ export default async function LeakQualityPage() {
       <Card
         title="Leak Cost: Sunday Volume, Pre vs. Post Repair"
         description="Sundays are closed, so this is almost entirely leak volume, not business use."
+        findingHref="/findings#s6"
       >
         <LeakComparisonChart data={leakComparison} />
       </Card>
 
-      <Card title="Data Quality Audit">
+      <Card title="Data Quality Audit" findingHref="/findings#s3">
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="border-b border-neutral-800 text-left text-neutral-400">

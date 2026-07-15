@@ -13,6 +13,7 @@ export default async function AnomaliesPage() {
       <Card
         title="Gate Activity vs. Pressure Differential (Engaged days)"
         description="Gate activity (red) roughly triples from May to June while pressure differential (blue) stays flat or improves slightly — a possible mechanical wear signal."
+        findingHref="/findings#s7"
       >
         <GateActivityChart data={gateActivity} />
       </Card>
@@ -20,6 +21,7 @@ export default async function AnomaliesPage() {
       <Card
         title="Data Completeness by Day"
         description="Orange bars are incomplete days. The late-May cluster reflects intermittent connectivity, not a sensor problem."
+        findingHref="/findings#s8"
       >
         <DataCompletenessChart data={completeness} />
       </Card>

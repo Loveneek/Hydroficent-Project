@@ -15,7 +15,7 @@ from etl.config import DEFAULT_CONFIG
 
 load_dotenv()
 
-TABLES_TO_EXPORT = ["dim_date", "fact_day_summary", "data_quality_log", "vw_engaged_vs_bypassed"]
+TABLES_TO_EXPORT = ["dim_date", "fact_day_summary", "data_quality_log", "vw_engaged_vs_bypassed", "fact_hourly_pattern"]
 
 
 def main():
