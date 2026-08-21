@@ -2,7 +2,7 @@ import { useState } from "react";
 import { CheckCircle2, Download, SlidersHorizontal, X } from "lucide-react";
 import { Reveal } from "../components/Reveal";
 import { cardClass } from "../theme";
-import type { ReportType } from "../types";
+import type { RecentReport, ReportType } from "../types";
 import type { DashboardData } from "../data/buildDashboardData";
 
 type ReportsPageProps = {
@@ -17,7 +17,177 @@ export function ReportsPage({ data }: ReportsPageProps) {
   const [downloadedReports, setDownloadedReports] = useState<Set<string>>(new Set());
   const { recentReports, reportTypes } = data.reports;
 
-  const downloadRecent = (key: string) => {
+  const slugify = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "");
+
+  const reportRows = (reportTitle: string) => {
+    const { dashboardMeta } = data;
+    const currentKpis = data.dashboard.kpis.map((kpi) => ({
+      section: "Metric",
+      name: kpi.label,
+      value: `${kpi.value}${kpi.unit ? ` ${kpi.unit}` : ""}`,
+      note: kpi.hint ?? kpi.severity,
+    }));
+
+    const alertRows = data.alerts.allAlerts.slice(0, 20).map((alert) => ({
+      section: "Alert",
+      name: alert.title,
+      value: alert.status,
+      note: `${alert.time} - ${alert.action}`,
+    }));
+
+    const analyticsRows = [
+      {
+        section: "Analytics",
+        name: "Mode Impact",
+        value: data.analytics.analyticsMeta.confidenceHeadline,
+        note: data.analytics.analyticsMeta.confidenceCaption,
+      },
+      {
+        section: "Analytics",
+        name: "Pressure Result",
+        value: data.analytics.pressureResult,
+        note: data.analytics.maintenanceSignal.title,
+      },
+      {
+        section: "Analytics",
+        name: "Telemetry Completeness",
+        value: `${dashboardMeta.telemetryCompleteness}%`,
+        note: `${dashboardMeta.readingCount.toLocaleString()} readings analyzed`,
+      },
+    ];
+
+    return [
+      {
+        section: "Report",
+        name: "Title",
+        value: reportTitle,
+        note: dashboardMeta.propertyName,
+      },
+      {
+        section: "Report",
+        name: "Data Window",
+        value: dashboardMeta.dataWindowLabel,
+        note: `${dashboardMeta.daysObserved} observed days`,
+      },
+      {
+        section: "Report",
+        name: "Latest Reading",
+        value: dashboardMeta.latestReadingLabel,
+        note: `Source: ${data.source}`,
+      },
+      ...currentKpis,
+      ...analyticsRows,
+      ...alertRows,
+    ];
+  };
+
+  const downloadBlob = (filename: string, mimeType: string, content: BlobPart) => {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const csvEscape = (value: string | number) => `"${String(value).replaceAll('"', '""')}"`;
+
+  const htmlEscape = (value: string | number) =>
+    String(value)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;");
+
+  const downloadCsv = (filename: string, rows: ReturnType<typeof reportRows>) => {
+    const csv = [
+      ["Section", "Name", "Value", "Note"].map(csvEscape).join(","),
+      ...rows.map((row) => [row.section, row.name, row.value, row.note].map(csvEscape).join(",")),
+    ].join("\n");
+
+    downloadBlob(filename, "text/csv;charset=utf-8", csv);
+  };
+
+  const downloadExcel = (filename: string, rows: ReturnType<typeof reportRows>) => {
+    const htmlRows = rows
+      .map(
+        (row) =>
+          `<tr><td>${htmlEscape(row.section)}</td><td>${htmlEscape(row.name)}</td><td>${htmlEscape(row.value)}</td><td>${htmlEscape(row.note)}</td></tr>`,
+      )
+      .join("");
+    const html = `
+      <html>
+        <head><meta charset="utf-8" /></head>
+        <body>
+          <table>
+            <thead><tr><th>Section</th><th>Name</th><th>Value</th><th>Note</th></tr></thead>
+            <tbody>${htmlRows}</tbody>
+          </table>
+        </body>
+      </html>
+    `;
+
+    downloadBlob(filename, "application/vnd.ms-excel;charset=utf-8", html);
+  };
+
+  const downloadPdf = async (filename: string, reportTitle: string, rows: ReturnType<typeof reportRows>) => {
+    const { jsPDF } = await import("jspdf");
+    const pdf = new jsPDF();
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    let y = 18;
+
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(16);
+    pdf.text(reportTitle, 14, y);
+
+    y += 8;
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(10);
+    pdf.text(data.dashboardMeta.propertyName, 14, y);
+
+    y += 8;
+    rows.forEach((row) => {
+      if (y > 276) {
+        pdf.addPage();
+        y = 18;
+      }
+
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(10);
+      pdf.text(`${row.section}: ${row.name}`, 14, y);
+      y += 5;
+
+      pdf.setFont("helvetica", "normal");
+      const wrapped = pdf.splitTextToSize(`${row.value} - ${row.note}`, pageWidth - 28);
+      pdf.text(wrapped, 14, y);
+      y += wrapped.length * 5 + 3;
+    });
+
+    pdf.save(filename);
+  };
+
+  const downloadReport = async (reportTitle: string, selectedFormat: "PDF" | "Excel" | "CSV") => {
+    const rows = reportRows(reportTitle);
+    const baseName = `${slugify(data.dashboardMeta.propertyName)}-${slugify(reportTitle)}`;
+
+    if (selectedFormat === "CSV") {
+      downloadCsv(`${baseName}.csv`, rows);
+    } else if (selectedFormat === "Excel") {
+      downloadExcel(`${baseName}.xls`, rows);
+    } else {
+      await downloadPdf(`${baseName}.pdf`, reportTitle, rows);
+    }
+  };
+
+  const downloadRecent = async (report: RecentReport, key: string) => {
+    await downloadReport(report.title, report.format);
     setDownloadedReports((prev) => new Set(prev).add(key));
   };
 
@@ -174,7 +344,7 @@ export function ReportsPage({ data }: ReportsPageProps) {
                     </p>
                   </div>
                   <button
-                    onClick={() => downloadRecent(key)}
+                    onClick={() => downloadRecent(report, key)}
                     disabled={isDownloaded}
                     className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold transition-colors duration-150 ${
                       isDownloaded
@@ -297,7 +467,10 @@ export function ReportsPage({ data }: ReportsPageProps) {
                 </div>
 
                 <button
-                  onClick={() => setJustDownloaded(true)}
+                  onClick={async () => {
+                    await downloadReport(openReport.title, format);
+                    setJustDownloaded(true);
+                  }}
                   className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--accent)] py-2.5 text-sm font-semibold text-[var(--bg-base)] transition-colors duration-150 hover:opacity-90"
                 >
                   <Download size={16} strokeWidth={2} />
