@@ -9,6 +9,20 @@ type ReportsPageProps = {
   data: DashboardData;
 };
 
+type IncludeOptions = {
+  metrics: boolean;
+  alerts: boolean;
+  charts: boolean;
+  notes: boolean;
+};
+
+type ReportRow = {
+  section: "Overview" | "Metrics" | "Alerts" | "Charts" | "Notes";
+  name: string;
+  value: string;
+  note: string;
+};
+
 export function ReportsPage({ data }: ReportsPageProps) {
   const [openReport, setOpenReport] = useState<ReportType | null>(null);
   const [format, setFormat] = useState<"PDF" | "Excel" | "CSV">("PDF");
@@ -23,65 +37,83 @@ export function ReportsPage({ data }: ReportsPageProps) {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/(^-|-$)/g, "");
 
-  const reportRows = (reportTitle: string) => {
+  const defaultInclude: IncludeOptions = { metrics: true, alerts: true, charts: true, notes: true };
+
+  const reportRows = (reportTitle: string, selectedInclude: IncludeOptions): ReportRow[] => {
     const { dashboardMeta } = data;
     const currentKpis = data.dashboard.kpis.map((kpi) => ({
-      section: "Metric",
+      section: "Metrics" as const,
       name: kpi.label,
       value: `${kpi.value}${kpi.unit ? ` ${kpi.unit}` : ""}`,
       note: kpi.hint ?? kpi.severity,
     }));
 
     const alertRows = data.alerts.allAlerts.slice(0, 20).map((alert) => ({
-      section: "Alert",
+      section: "Alerts" as const,
       name: alert.title,
       value: alert.status,
       note: `${alert.time} - ${alert.action}`,
     }));
 
-    const analyticsRows = [
+    const chartRows = [
       {
-        section: "Analytics",
+        section: "Charts" as const,
         name: "Mode Impact",
         value: data.analytics.analyticsMeta.confidenceHeadline,
         note: data.analytics.analyticsMeta.confidenceCaption,
       },
       {
-        section: "Analytics",
+        section: "Charts" as const,
         name: "Pressure Result",
         value: data.analytics.pressureResult,
         note: data.analytics.maintenanceSignal.title,
       },
       {
-        section: "Analytics",
+        section: "Charts" as const,
         name: "Telemetry Completeness",
         value: `${dashboardMeta.telemetryCompleteness}%`,
         note: `${dashboardMeta.readingCount.toLocaleString()} readings analyzed`,
       },
     ];
 
+    const noteRows = [
+      {
+        section: "Notes" as const,
+        name: "Operator Review",
+        value: data.alerts.activeAlerts.length ? "Action required" : "No active alert action required",
+        note: data.alerts.activeAlerts[0]?.action ?? "Continue routine monitoring.",
+      },
+      {
+        section: "Notes" as const,
+        name: "Data Source",
+        value: data.source,
+        note: "Dashboard generated from Supabase summary tables.",
+      },
+    ];
+
     return [
       {
-        section: "Report",
+        section: "Overview" as const,
         name: "Title",
         value: reportTitle,
         note: dashboardMeta.propertyName,
       },
       {
-        section: "Report",
+        section: "Overview" as const,
         name: "Data Window",
         value: dashboardMeta.dataWindowLabel,
         note: `${dashboardMeta.daysObserved} observed days`,
       },
       {
-        section: "Report",
+        section: "Overview" as const,
         name: "Latest Reading",
         value: dashboardMeta.latestReadingLabel,
         note: `Source: ${data.source}`,
       },
-      ...currentKpis,
-      ...analyticsRows,
-      ...alertRows,
+      ...(selectedInclude.metrics ? currentKpis : []),
+      ...(selectedInclude.alerts ? alertRows : []),
+      ...(selectedInclude.charts ? chartRows : []),
+      ...(selectedInclude.notes ? noteRows : []),
     ];
   };
 
@@ -106,7 +138,7 @@ export function ReportsPage({ data }: ReportsPageProps) {
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;");
 
-  const downloadCsv = (filename: string, rows: ReturnType<typeof reportRows>) => {
+  const downloadCsv = (filename: string, rows: ReportRow[]) => {
     const csv = [
       ["Section", "Name", "Value", "Note"].map(csvEscape).join(","),
       ...rows.map((row) => [row.section, row.name, row.value, row.note].map(csvEscape).join(",")),
@@ -115,7 +147,7 @@ export function ReportsPage({ data }: ReportsPageProps) {
     downloadBlob(filename, "text/csv;charset=utf-8", csv);
   };
 
-  const downloadExcel = (filename: string, rows: ReturnType<typeof reportRows>) => {
+  const downloadExcel = (filename: string, rows: ReportRow[]) => {
     const htmlRows = rows
       .map(
         (row) =>
@@ -137,44 +169,158 @@ export function ReportsPage({ data }: ReportsPageProps) {
     downloadBlob(filename, "application/vnd.ms-excel;charset=utf-8", html);
   };
 
-  const downloadPdf = async (filename: string, reportTitle: string, rows: ReturnType<typeof reportRows>) => {
+  const downloadPdf = async (filename: string, reportTitle: string, rows: ReportRow[]) => {
     const { jsPDF } = await import("jspdf");
     const pdf = new jsPDF();
     const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = 16;
+    const contentWidth = pageWidth - margin * 2;
     let y = 18;
 
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(16);
-    pdf.text(reportTitle, 14, y);
-
-    y += 8;
-    pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(10);
-    pdf.text(data.dashboardMeta.propertyName, 14, y);
-
-    y += 8;
-    rows.forEach((row) => {
-      if (y > 276) {
-        pdf.addPage();
-        y = 18;
-      }
-
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(10);
-      pdf.text(`${row.section}: ${row.name}`, 14, y);
-      y += 5;
-
+    const addFooter = () => {
+      const pageNumber = pdf.getNumberOfPages();
       pdf.setFont("helvetica", "normal");
-      const wrapped = pdf.splitTextToSize(`${row.value} - ${row.note}`, pageWidth - 28);
-      pdf.text(wrapped, 14, y);
-      y += wrapped.length * 5 + 3;
+      pdf.setFontSize(8);
+      pdf.setTextColor(110, 126, 145);
+      pdf.text(`Hydroficient Operator Report - Page ${pageNumber}`, margin, pageHeight - 10);
+    };
+
+    const addPageIfNeeded = (neededHeight: number) => {
+      if (y + neededHeight <= pageHeight - 18) return;
+      addFooter();
+      pdf.addPage();
+      y = 18;
+    };
+
+    const sectionTitle = (title: string) => {
+      addPageIfNeeded(16);
+      y += 4;
+      pdf.setDrawColor(15, 118, 150);
+      pdf.setLineWidth(0.8);
+      pdf.line(margin, y, margin + 8, y);
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(12);
+      pdf.setTextColor(15, 23, 42);
+      pdf.text(title, margin + 11, y + 1);
+      y += 8;
+    };
+
+    const drawMetricCard = (x: number, cardY: number, width: number, label: string, value: string, note: string) => {
+      pdf.setFillColor(241, 248, 251);
+      pdf.setDrawColor(205, 225, 233);
+      pdf.roundedRect(x, cardY, width, 27, 3, 3, "FD");
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(87, 105, 124);
+      pdf.text(label.toUpperCase(), x + 4, cardY + 7);
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(13);
+      pdf.setTextColor(7, 89, 133);
+      pdf.text(value, x + 4, cardY + 16);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(7);
+      pdf.setTextColor(100, 116, 139);
+      pdf.text(pdf.splitTextToSize(note, width - 8).slice(0, 1), x + 4, cardY + 23);
+    };
+
+    pdf.setFillColor(8, 47, 73);
+    pdf.rect(0, 0, pageWidth, 44, "F");
+    pdf.setFillColor(14, 165, 233);
+    pdf.circle(margin + 4, 14, 3, "F");
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(18);
+    pdf.setTextColor(255, 255, 255);
+    pdf.text(reportTitle, margin, 22);
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(9);
+    pdf.setTextColor(191, 219, 254);
+    pdf.text(data.dashboardMeta.propertyName, margin, 31);
+    pdf.text(data.dashboardMeta.dataWindowLabel, margin, 38);
+    y = 58;
+
+    const overviewRows = rows.filter((row) => row.section === "Overview");
+    const metricRows = rows.filter((row) => row.section === "Metrics");
+    const remainingSections = ["Alerts", "Charts", "Notes"] as const;
+
+    sectionTitle("Executive Summary");
+    const summaryText = [
+      `${data.dashboardMeta.propertyName} has ${data.dashboardMeta.daysObserved} observed days in this dashboard period.`,
+      `Latest reading: ${data.dashboardMeta.latestReadingLabel}.`,
+      `Water stability index: ${data.dashboardMeta.stabilityIndex}%. Telemetry completeness: ${data.dashboardMeta.telemetryCompleteness}%.`,
+    ];
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(9.5);
+    pdf.setTextColor(51, 65, 85);
+    pdf.text(pdf.splitTextToSize(summaryText.join(" "), contentWidth), margin, y);
+    y += 19;
+
+    if (metricRows.length) {
+      addPageIfNeeded(40);
+      const gap = 4;
+      const cardWidth = (contentWidth - gap) / 2;
+      metricRows.slice(0, 4).forEach((row, index) => {
+        const x = margin + (index % 2) * (cardWidth + gap);
+        const cardY = y + Math.floor(index / 2) * 31;
+        drawMetricCard(x, cardY, cardWidth, row.name, row.value, row.note);
+      });
+      y += Math.ceil(Math.min(metricRows.length, 4) / 2) * 31 + 2;
+    }
+
+    if (overviewRows.length) {
+      sectionTitle("Report Details");
+      overviewRows.forEach((row) => {
+        addPageIfNeeded(13);
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(8.5);
+        pdf.setTextColor(71, 85, 105);
+        pdf.text(row.name, margin, y);
+        pdf.setFont("helvetica", "normal");
+        pdf.setTextColor(15, 23, 42);
+        pdf.text(pdf.splitTextToSize(`${row.value} - ${row.note}`, contentWidth - 52), margin + 52, y);
+        y += 8;
+      });
+    }
+
+    remainingSections.forEach((section) => {
+      const sectionRows = rows.filter((row) => row.section === section);
+      if (!sectionRows.length) return;
+
+      sectionTitle(section);
+      sectionRows.slice(0, section === "Alerts" ? 12 : 8).forEach((row) => {
+        const wrapped = pdf.splitTextToSize(row.note, contentWidth - 62);
+        const rowHeight = Math.max(14, wrapped.length * 4 + 8);
+        addPageIfNeeded(rowHeight);
+
+        pdf.setFillColor(248, 250, 252);
+        pdf.setDrawColor(226, 232, 240);
+        pdf.roundedRect(margin, y - 4, contentWidth, rowHeight, 2, 2, "FD");
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(8.5);
+        pdf.setTextColor(15, 23, 42);
+        pdf.text(row.name, margin + 4, y + 2);
+        pdf.setFont("helvetica", "bold");
+        pdf.setTextColor(section === "Alerts" && row.value === "Active" ? 180 : 15, section === "Alerts" && row.value === "Active" ? 83 : 118, 9);
+        pdf.text(row.value, margin + contentWidth - 32, y + 2);
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(8);
+        pdf.setTextColor(71, 85, 105);
+        pdf.text(wrapped, margin + 4, y + 8);
+        y += rowHeight + 4;
+      });
     });
+
+    addFooter();
 
     pdf.save(filename);
   };
 
-  const downloadReport = async (reportTitle: string, selectedFormat: "PDF" | "Excel" | "CSV") => {
-    const rows = reportRows(reportTitle);
+  const downloadReport = async (
+    reportTitle: string,
+    selectedFormat: "PDF" | "Excel" | "CSV",
+    selectedInclude: IncludeOptions = defaultInclude,
+  ) => {
+    const rows = reportRows(reportTitle, selectedInclude);
     const baseName = `${slugify(data.dashboardMeta.propertyName)}-${slugify(reportTitle)}`;
 
     if (selectedFormat === "CSV") {
@@ -187,7 +333,7 @@ export function ReportsPage({ data }: ReportsPageProps) {
   };
 
   const downloadRecent = async (report: RecentReport, key: string) => {
-    await downloadReport(report.title, report.format);
+    await downloadReport(report.title, report.format, defaultInclude);
     setDownloadedReports((prev) => new Set(prev).add(key));
   };
 
@@ -468,7 +614,7 @@ export function ReportsPage({ data }: ReportsPageProps) {
 
                 <button
                   onClick={async () => {
-                    await downloadReport(openReport.title, format);
+                    await downloadReport(openReport.title, format, include);
                     setJustDownloaded(true);
                   }}
                   className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--accent)] py-2.5 text-sm font-semibold text-[var(--bg-base)] transition-colors duration-150 hover:opacity-90"
