@@ -17,7 +17,7 @@ type IncludeOptions = {
 };
 
 type ReportRow = {
-  section: "Overview" | "Metrics" | "Alerts" | "Charts" | "Notes";
+  section: "Overview" | "Consumption" | "Sensors" | "Alerts" | "Charts" | "Financial Impact" | "Notes";
   name: string;
   value: string;
   note: string;
@@ -26,7 +26,7 @@ type ReportRow = {
 export function ReportsPage({ data }: ReportsPageProps) {
   const [openReport, setOpenReport] = useState<ReportType | null>(null);
   const [format, setFormat] = useState<"PDF" | "Excel" | "CSV">("PDF");
-  const [include, setInclude] = useState({ metrics: true, alerts: true, charts: true, notes: false });
+  const [include, setInclude] = useState({ metrics: true, alerts: true, charts: true, notes: true });
   const [justDownloaded, setJustDownloaded] = useState(false);
   const [downloadedReports, setDownloadedReports] = useState<Set<string>>(new Set());
   const { recentReports, reportTypes } = data.reports;
@@ -38,15 +38,125 @@ export function ReportsPage({ data }: ReportsPageProps) {
       .replace(/(^-|-$)/g, "");
 
   const defaultInclude: IncludeOptions = { metrics: true, alerts: true, charts: true, notes: true };
+  const blendedWaterRatePerThousandGal = 18;
+
+  const formatNumber = (value: number, decimals = 0) =>
+    Number.isFinite(value)
+      ? value.toLocaleString("en-US", {
+          minimumFractionDigits: decimals,
+          maximumFractionDigits: decimals,
+        })
+      : "0";
+
+  const formatMoney = (value: number) =>
+    value.toLocaleString("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    });
+
+  const formatRate = (value: number) =>
+    value.toLocaleString("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 3,
+      maximumFractionDigits: 3,
+    });
+
+  const parseNumber = (value: string) => Number(value.replace(/[^0-9.-]/g, "")) || 0;
+
+  const findKpi = (label: string) => data.dashboard.kpis.find((kpi) => kpi.label === label);
+
+  const latestDailyVolume = Number(findKpi("Daily Volume")?.value ?? 0);
+  const currentFlow = Number(findKpi("Water Flow")?.value ?? 0);
+  const upstreamPressure = Number(findKpi("Upstream Pressure")?.value ?? 0);
+  const downstreamPressure = Number(findKpi("Downstream Pressure")?.value ?? 0);
+  const avgDailyUse = parseNumber(data.analytics.analyticsKpis.find((kpi) => kpi.label === "Avg. Daily Use")?.value ?? "0");
+  const peakFlow = parseNumber(data.analytics.analyticsKpis.find((kpi) => kpi.label === "Peak Flow")?.value ?? "0");
+  const totalVolume = data.dashboardMeta.totalVolumeGal;
+  const costPerGal = blendedWaterRatePerThousandGal / 1000;
+  const latestDayCost = latestDailyVolume * costPerGal;
+  const avgDayCost = avgDailyUse * costPerGal;
+  const periodCost = totalVolume * costPerGal;
+  const costDelta = latestDayCost - avgDayCost;
+  const costDeltaLabel =
+    costDelta >= 0
+      ? `${formatMoney(costDelta)} above average day`
+      : `${formatMoney(Math.abs(costDelta))} below average day`;
+  const pressureSpread = upstreamPressure - downstreamPressure;
+  const peakHour = data.dashboard.hourlyUsage.reduce(
+    (best, row) => (row.value > best.value ? row : best),
+    data.dashboard.hourlyUsage[0] ?? { hour: "00:00", value: 0, offHours: false },
+  );
+  const overnightUsage = data.dashboard.hourlyUsage
+    .filter((row) => row.offHours)
+    .reduce((total, row) => total + row.value, 0);
+  const daytimeUsage = data.dashboard.hourlyUsage
+    .filter((row) => !row.offHours)
+    .reduce((total, row) => total + row.value, 0);
 
   const reportRows = (reportTitle: string, selectedInclude: IncludeOptions): ReportRow[] => {
     const { dashboardMeta } = data;
-    const currentKpis = data.dashboard.kpis.map((kpi) => ({
-      section: "Metrics" as const,
-      name: kpi.label,
-      value: `${kpi.value}${kpi.unit ? ` ${kpi.unit}` : ""}`,
-      note: kpi.hint ?? kpi.severity,
-    }));
+    const consumptionRows = [
+      {
+        section: "Consumption" as const,
+        name: "Latest Complete Day Volume",
+        value: `${formatNumber(latestDailyVolume)} gal`,
+        note: `${dashboardMeta.latestCompleteDayLabel}; compared with ${formatNumber(avgDailyUse)} gal average day.`,
+      },
+      {
+        section: "Consumption" as const,
+        name: "Period Consumption",
+        value: `${formatNumber(totalVolume)} gal`,
+        note: `Total measured consumption across ${dashboardMeta.daysObserved} observed days.`,
+      },
+      {
+        section: "Consumption" as const,
+        name: "Peak Usage Hour",
+        value: `${peakHour.hour} - ${formatNumber(peakHour.value)} gal`,
+        note: peakHour.offHours ? "Peak occurred during off-hours and should be reviewed." : "Peak occurred during normal operating hours.",
+      },
+      {
+        section: "Consumption" as const,
+        name: "Off-hours Consumption",
+        value: `${formatNumber(overnightUsage)} gal`,
+        note: `${formatNumber(daytimeUsage)} gal occurred during normal operating hours in the average hourly profile.`,
+      },
+    ];
+
+    const sensorRows = [
+      {
+        section: "Sensors" as const,
+        name: "Flow Sensor",
+        value: `${formatNumber(currentFlow, 2)} GPM current`,
+        note: `Peak observed flow is ${formatNumber(peakFlow, 1)} GPM; this is the primary signal for real-time consumption movement.`,
+      },
+      {
+        section: "Sensors" as const,
+        name: "Upstream Pressure",
+        value: `${formatNumber(upstreamPressure, 1)} psi`,
+        note: "Used to confirm supply-side pressure stability while water is being consumed.",
+      },
+      {
+        section: "Sensors" as const,
+        name: "Downstream Pressure",
+        value: `${formatNumber(downstreamPressure, 1)} psi`,
+        note: `Pressure spread is ${formatNumber(pressureSpread, 1)} psi between upstream and downstream readings.`,
+      },
+      {
+        section: "Sensors" as const,
+        name: "Device Mode",
+        value: data.dashboard.todayDeviceState,
+        note: `${data.dashboard.deviceModeSummary.engagedDays} engaged days and ${data.dashboard.deviceModeSummary.bypassedDays} bypassed days in the displayed mode window.`,
+      },
+      {
+        section: "Sensors" as const,
+        name: "Telemetry Coverage",
+        value: `${dashboardMeta.telemetryCompleteness}%`,
+        note: `${dashboardMeta.readingCount.toLocaleString()} readings analyzed from ${dashboardMeta.sourceFiles} source files.`,
+      },
+    ];
 
     const alertRows = data.alerts.allAlerts.slice(0, 20).map((alert) => ({
       section: "Alerts" as const,
@@ -77,6 +187,18 @@ export function ReportsPage({ data }: ReportsPageProps) {
     ];
 
     const noteRows = [
+      {
+        section: "Financial Impact" as const,
+        name: "Estimated Period Water Cost",
+        value: formatMoney(periodCost),
+        note: `Calculated with a placeholder blended utility rate of ${formatMoney(blendedWaterRatePerThousandGal)} per 1,000 gallons.`,
+      },
+      {
+        section: "Financial Impact" as const,
+        name: "Latest Day Cost Movement",
+        value: costDeltaLabel,
+        note: `Latest complete day is ${formatMoney(latestDayCost)} vs. an average day of ${formatMoney(avgDayCost)}. Replace this with the client's actual water and sewer tariff when available.`,
+      },
       {
         section: "Notes" as const,
         name: "Operator Review",
@@ -110,7 +232,7 @@ export function ReportsPage({ data }: ReportsPageProps) {
         value: dashboardMeta.latestReadingLabel,
         note: `Source: ${data.source}`,
       },
-      ...(selectedInclude.metrics ? currentKpis : []),
+      ...(selectedInclude.metrics ? [...consumptionRows, ...sensorRows] : []),
       ...(selectedInclude.alerts ? alertRows : []),
       ...(selectedInclude.charts ? chartRows : []),
       ...(selectedInclude.notes ? noteRows : []),
@@ -169,14 +291,25 @@ export function ReportsPage({ data }: ReportsPageProps) {
     downloadBlob(filename, "application/vnd.ms-excel;charset=utf-8", html);
   };
 
-  const downloadPdf = async (filename: string, reportTitle: string, rows: ReportRow[]) => {
+  const downloadPdf = async (filename: string, reportTitle: string, rows: ReportRow[], selectedInclude: IncludeOptions) => {
     const { jsPDF } = await import("jspdf");
     const pdf = new jsPDF();
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
     const margin = 16;
     const contentWidth = pageWidth - margin * 2;
+    const navy = [7, 32, 49] as const;
+    const surface = [243, 248, 250] as const;
+    const ink = [15, 23, 42] as const;
+    const muted = [91, 108, 132] as const;
+    const cyan = [6, 182, 212] as const;
+    const green = [34, 197, 94] as const;
+    const amber = [245, 158, 11] as const;
     let y = 18;
+
+    const setFill = (color: readonly [number, number, number]) => {
+      pdf.setFillColor(color[0], color[1], color[2]);
+    };
 
     const addFooter = () => {
       const pageNumber = pdf.getNumberOfPages();
@@ -195,76 +328,206 @@ export function ReportsPage({ data }: ReportsPageProps) {
 
     const sectionTitle = (title: string) => {
       addPageIfNeeded(16);
-      y += 4;
-      pdf.setDrawColor(15, 118, 150);
-      pdf.setLineWidth(0.8);
-      pdf.line(margin, y, margin + 8, y);
+      y += 5;
+      pdf.setFillColor(...cyan);
+      pdf.roundedRect(margin, y - 3, 8, 3, 1.5, 1.5, "F");
       pdf.setFont("helvetica", "bold");
       pdf.setFontSize(12);
-      pdf.setTextColor(15, 23, 42);
-      pdf.text(title, margin + 11, y + 1);
-      y += 8;
+      pdf.setTextColor(...ink);
+      pdf.text(title, margin + 12, y);
+      y += 9;
     };
 
-    const drawMetricCard = (x: number, cardY: number, width: number, label: string, value: string, note: string) => {
-      pdf.setFillColor(241, 248, 251);
-      pdf.setDrawColor(205, 225, 233);
-      pdf.roundedRect(x, cardY, width, 27, 3, 3, "FD");
+    const drawInsightCard = (
+      x: number,
+      cardY: number,
+      width: number,
+      height: number,
+      label: string,
+      value: string,
+      note: string,
+      accent: readonly [number, number, number] = cyan,
+    ) => {
+      pdf.setFillColor(255, 255, 255);
+      pdf.setDrawColor(220, 232, 238);
+      pdf.roundedRect(x, cardY, width, height, 3, 3, "FD");
+      setFill(accent);
+      pdf.roundedRect(x, cardY, 2.2, height, 1.5, 1.5, "F");
       pdf.setFont("helvetica", "normal");
       pdf.setFontSize(7.5);
-      pdf.setTextColor(87, 105, 124);
-      pdf.text(label.toUpperCase(), x + 4, cardY + 7);
+      pdf.setTextColor(...muted);
+      pdf.text(label.toUpperCase(), x + 5, cardY + 7);
       pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(13);
-      pdf.setTextColor(7, 89, 133);
-      pdf.text(value, x + 4, cardY + 16);
+      pdf.setFontSize(value.length > 20 ? 10.5 : 13.5);
+      pdf.setTextColor(...ink);
+      pdf.text(value, x + 5, cardY + 17);
       pdf.setFont("helvetica", "normal");
       pdf.setFontSize(7);
-      pdf.setTextColor(100, 116, 139);
-      pdf.text(pdf.splitTextToSize(note, width - 8).slice(0, 1), x + 4, cardY + 23);
+      pdf.setTextColor(...muted);
+      pdf.text(pdf.splitTextToSize(note, width - 10).slice(0, 2), x + 5, cardY + 24);
     };
 
-    pdf.setFillColor(8, 47, 73);
-    pdf.rect(0, 0, pageWidth, 44, "F");
-    pdf.setFillColor(14, 165, 233);
-    pdf.circle(margin + 4, 14, 3, "F");
+    const drawProgress = (x: number, barY: number, width: number, label: string, value: number, max: number, color: readonly [number, number, number]) => {
+      const pct = Math.max(0, Math.min(1, max ? value / max : 0));
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(8);
+      pdf.setTextColor(...muted);
+      pdf.text(label, x, barY - 2);
+      pdf.setFillColor(226, 235, 240);
+      pdf.roundedRect(x, barY, width, 4, 2, 2, "F");
+      setFill(color);
+      pdf.roundedRect(x, barY, width * pct, 4, 2, 2, "F");
+      pdf.setFont("helvetica", "bold");
+      pdf.setTextColor(...ink);
+      pdf.text(`${Math.round(pct * 100)}%`, x + width + 5, barY + 3.5);
+    };
+
+    const drawHourlyBars = (x: number, chartY: number, width: number, height: number) => {
+      const values = data.dashboard.hourlyUsage.map((row) => row.value);
+      const maxValue = Math.max(...values, 1);
+      const gap = 1.2;
+      const barWidth = (width - gap * 23) / 24;
+      data.dashboard.hourlyUsage.forEach((row, index) => {
+        const barHeight = Math.max(2, (row.value / maxValue) * height);
+        pdf.setFillColor(row.offHours ? 96 : 6, row.offHours ? 165 : 182, row.offHours ? 250 : 212);
+        pdf.roundedRect(x + index * (barWidth + gap), chartY + height - barHeight, barWidth, barHeight, 1, 1, "F");
+      });
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(7);
+      pdf.setTextColor(...muted);
+      pdf.text("00:00", x, chartY + height + 7);
+      pdf.text("12:00", x + width / 2 - 5, chartY + height + 7);
+      pdf.text("23:00", x + width - 13, chartY + height + 7);
+    };
+
+    const drawModeRibbon = (x: number, ribbonY: number, width: number) => {
+      const history = data.dashboard.deviceModeHistory;
+      const segmentWidth = width / Math.max(history.length, 1);
+      history.forEach((day, index) => {
+        const color = day.state === "Engaged" ? green : amber;
+        setFill(color);
+        pdf.rect(x + index * segmentWidth, ribbonY, Math.max(segmentWidth - 0.5, 1), 7, "F");
+      });
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(...muted);
+      pdf.text(data.dashboard.deviceModeSummary.startLabel, x, ribbonY + 14);
+      pdf.text(data.dashboard.deviceModeSummary.endLabel, x + width - 16, ribbonY + 14);
+      pdf.setFillColor(...green);
+      pdf.circle(x, ribbonY + 22, 1.8, "F");
+      pdf.setTextColor(...ink);
+      pdf.text(`${data.dashboard.deviceModeSummary.engagedDays} engaged days`, x + 5, ribbonY + 23);
+      pdf.setFillColor(...amber);
+      pdf.circle(x + 54, ribbonY + 22, 1.8, "F");
+      pdf.text(`${data.dashboard.deviceModeSummary.bypassedDays} bypassed days`, x + 59, ribbonY + 23);
+    };
+
+    const drawRows = (section: ReportRow["section"], limit = 10) => {
+      const sectionRows = rows.filter((row) => row.section === section);
+      if (!sectionRows.length) return;
+
+      sectionTitle(section);
+      sectionRows.slice(0, limit).forEach((row) => {
+        const wrapped = pdf.splitTextToSize(row.note, contentWidth - 62);
+        const rowHeight = Math.max(15, wrapped.length * 4 + 10);
+        addPageIfNeeded(rowHeight);
+
+        pdf.setFillColor(255, 255, 255);
+        pdf.setDrawColor(224, 234, 240);
+        pdf.roundedRect(margin, y - 4, contentWidth, rowHeight, 2.5, 2.5, "FD");
+      if (section === "Alerts") {
+          const alertColor = row.value === "Active" ? amber : green;
+          setFill(alertColor);
+          pdf.circle(margin + 5, y + 2, 2, "F");
+        }
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(8.5);
+        pdf.setTextColor(...ink);
+        pdf.text(row.name, margin + (section === "Alerts" ? 10 : 5), y + 2);
+        pdf.setFont("helvetica", "bold");
+        pdf.setTextColor(section === "Alerts" && row.value === "Active" ? 180 : 7, section === "Alerts" && row.value === "Active" ? 83 : 118, 9);
+        pdf.text(pdf.splitTextToSize(row.value, 38).slice(0, 1), margin + contentWidth - 43, y + 2);
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(8);
+        pdf.setTextColor(...muted);
+        pdf.text(wrapped, margin + (section === "Alerts" ? 10 : 5), y + 9);
+        y += rowHeight + 4;
+      });
+    };
+
+    pdf.setFillColor(...navy);
+    pdf.rect(0, 0, pageWidth, 56, "F");
+    pdf.setFillColor(...cyan);
+    pdf.roundedRect(margin, 12, 11, 11, 3, 3, "F");
     pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(18);
+    pdf.setFontSize(10);
+    pdf.setTextColor(...navy);
+    pdf.text("H", margin + 3.3, 19.6);
+    pdf.setFontSize(20);
     pdf.setTextColor(255, 255, 255);
-    pdf.text(reportTitle, margin, 22);
+    pdf.text(reportTitle, margin, 33);
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(9);
     pdf.setTextColor(191, 219, 254);
-    pdf.text(data.dashboardMeta.propertyName, margin, 31);
-    pdf.text(data.dashboardMeta.dataWindowLabel, margin, 38);
-    y = 58;
+    pdf.text(data.dashboardMeta.propertyName, margin, 42);
+    pdf.text(data.dashboardMeta.dataWindowLabel, margin, 49);
+    pdf.setFillColor(226, 252, 255);
+    pdf.roundedRect(pageWidth - margin - 46, 14, 46, 11, 5.5, 5.5, "F");
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(8);
+    pdf.setTextColor(8, 107, 137);
+    pdf.text("Client-ready draft", pageWidth - margin - 40, 21.5);
+    y = 70;
 
     const overviewRows = rows.filter((row) => row.section === "Overview");
-    const metricRows = rows.filter((row) => row.section === "Metrics");
-    const remainingSections = ["Alerts", "Charts", "Notes"] as const;
+    const consumptionRows = rows.filter((row) => row.section === "Consumption");
+    const sensorRows = rows.filter((row) => row.section === "Sensors");
 
     sectionTitle("Executive Summary");
     const summaryText = [
-      `${data.dashboardMeta.propertyName} has ${data.dashboardMeta.daysObserved} observed days in this dashboard period.`,
-      `Latest reading: ${data.dashboardMeta.latestReadingLabel}.`,
-      `Water stability index: ${data.dashboardMeta.stabilityIndex}%. Telemetry completeness: ${data.dashboardMeta.telemetryCompleteness}%.`,
+      `${data.dashboardMeta.propertyName} has ${data.dashboardMeta.daysObserved} observed days in this reporting period.`,
+      `The latest complete day used ${formatNumber(latestDailyVolume)} gallons against a ${formatNumber(avgDailyUse)} gallon average day.`,
+      `At the placeholder blended utility rate, that day is ${costDeltaLabel.toLowerCase()}.`,
+      `Telemetry completeness is ${data.dashboardMeta.telemetryCompleteness}%, so the report is suitable for review but final billing comparisons should use the client's tariff sheet.`,
     ];
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(9.5);
-    pdf.setTextColor(51, 65, 85);
+    pdf.setTextColor(...muted);
     pdf.text(pdf.splitTextToSize(summaryText.join(" "), contentWidth), margin, y);
-    y += 19;
+    y += 24;
 
-    if (metricRows.length) {
-      addPageIfNeeded(40);
+    if (selectedInclude.metrics && consumptionRows.length) {
+      addPageIfNeeded(66);
       const gap = 4;
-      const cardWidth = (contentWidth - gap) / 2;
-      metricRows.slice(0, 4).forEach((row, index) => {
-        const x = margin + (index % 2) * (cardWidth + gap);
-        const cardY = y + Math.floor(index / 2) * 31;
-        drawMetricCard(x, cardY, cardWidth, row.name, row.value, row.note);
+      const cardWidth = (contentWidth - gap * 2) / 3;
+      consumptionRows.slice(0, 3).forEach((row, index) => {
+        const x = margin + index * (cardWidth + gap);
+        drawInsightCard(x, y, cardWidth, 31, row.name, row.value, row.note, index === 2 ? amber : cyan);
       });
-      y += Math.ceil(Math.min(metricRows.length, 4) / 2) * 31 + 2;
+      y += 39;
+
+      pdf.setFillColor(...surface);
+      pdf.setDrawColor(220, 232, 238);
+      pdf.roundedRect(margin, y, contentWidth, 55, 3, 3, "FD");
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(10);
+      pdf.setTextColor(...ink);
+      pdf.text("Sensor Evidence For Consumption", margin + 5, y + 9);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(8);
+      pdf.setTextColor(...muted);
+      pdf.text(
+        pdf.splitTextToSize(
+          "Consumption is not judged from one number only. The report combines volume movement, current flow, pressure behavior, device mode, and telemetry coverage so an operator can see whether usage is normal, explainable, or worth investigating.",
+          contentWidth - 10,
+        ),
+        margin + 5,
+        y + 17,
+      );
+      drawProgress(margin + 5, y + 36, 55, "Telemetry", data.dashboardMeta.telemetryCompleteness, 100, green);
+      drawProgress(margin + 84, y + 36, 55, "Stability", data.dashboardMeta.stabilityIndex, 100, cyan);
+      drawProgress(margin + 163, y + 36, 20, "Pressure", Math.max(0, 100 - Math.abs(pressureSpread) * 2), 100, pressureSpread > 18 ? amber : green);
+      y += 62;
     }
 
     if (overviewRows.length) {
@@ -282,33 +545,63 @@ export function ReportsPage({ data }: ReportsPageProps) {
       });
     }
 
-    remainingSections.forEach((section) => {
-      const sectionRows = rows.filter((row) => row.section === section);
-      if (!sectionRows.length) return;
+    if (selectedInclude.metrics && sensorRows.length) {
+      drawRows("Sensors", 8);
+    }
 
-      sectionTitle(section);
-      sectionRows.slice(0, section === "Alerts" ? 12 : 8).forEach((row) => {
-        const wrapped = pdf.splitTextToSize(row.note, contentWidth - 62);
-        const rowHeight = Math.max(14, wrapped.length * 4 + 8);
-        addPageIfNeeded(rowHeight);
+    if (selectedInclude.charts) {
+      sectionTitle("Consumption Pattern");
+      addPageIfNeeded(70);
+      pdf.setFillColor(255, 255, 255);
+      pdf.setDrawColor(220, 232, 238);
+      pdf.roundedRect(margin, y, contentWidth, 62, 3, 3, "FD");
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(10);
+      pdf.setTextColor(...ink);
+      pdf.text("Average hourly consumption profile", margin + 5, y + 9);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(8);
+      pdf.setTextColor(...muted);
+      pdf.text("Off-hours are blue; operating hours are cyan. Tall off-hours bars point to possible continuous use.", margin + 5, y + 16);
+      drawHourlyBars(margin + 7, y + 23, contentWidth - 14, 25);
+      y += 69;
 
-        pdf.setFillColor(248, 250, 252);
-        pdf.setDrawColor(226, 232, 240);
-        pdf.roundedRect(margin, y - 4, contentWidth, rowHeight, 2, 2, "FD");
-        pdf.setFont("helvetica", "bold");
-        pdf.setFontSize(8.5);
-        pdf.setTextColor(15, 23, 42);
-        pdf.text(row.name, margin + 4, y + 2);
-        pdf.setFont("helvetica", "bold");
-        pdf.setTextColor(section === "Alerts" && row.value === "Active" ? 180 : 15, section === "Alerts" && row.value === "Active" ? 83 : 118, 9);
-        pdf.text(row.value, margin + contentWidth - 32, y + 2);
-        pdf.setFont("helvetica", "normal");
-        pdf.setFontSize(8);
-        pdf.setTextColor(71, 85, 105);
-        pdf.text(wrapped, margin + 4, y + 8);
-        y += rowHeight + 4;
-      });
-    });
+      sectionTitle("Mode Timeline");
+      addPageIfNeeded(44);
+      drawModeRibbon(margin, y, contentWidth);
+      y += 34;
+      drawRows("Charts", 8);
+    }
+
+    if (selectedInclude.notes) {
+      sectionTitle("Dollar Impact Explanation");
+      addPageIfNeeded(38);
+      pdf.setFillColor(255, 251, 235);
+      pdf.setDrawColor(253, 230, 138);
+      pdf.roundedRect(margin, y, contentWidth, 32, 3, 3, "FD");
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(10);
+      pdf.setTextColor(120, 53, 15);
+      pdf.text(`${costDelta >= 0 ? "Increase" : "Reduction"} vs. average day: ${costDeltaLabel}`, margin + 5, y + 9);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(8);
+      pdf.setTextColor(120, 53, 15);
+      pdf.text(
+        pdf.splitTextToSize(
+          `This uses ${formatMoney(blendedWaterRatePerThousandGal)} per 1,000 gallons as a planning rate. The math is: gallons above or below the average day multiplied by ${formatRate(costPerGal)} per gallon. Final client reporting should replace this placeholder with the property's actual water and sewer rates.`,
+          contentWidth - 10,
+        ),
+        margin + 5,
+        y + 17,
+      );
+      y += 38;
+      drawRows("Financial Impact", 8);
+      drawRows("Notes", 8);
+    }
+
+    if (selectedInclude.alerts) {
+      drawRows("Alerts", 12);
+    }
 
     addFooter();
 
@@ -328,7 +621,7 @@ export function ReportsPage({ data }: ReportsPageProps) {
     } else if (selectedFormat === "Excel") {
       downloadExcel(`${baseName}.xls`, rows);
     } else {
-      await downloadPdf(`${baseName}.pdf`, reportTitle, rows);
+      await downloadPdf(`${baseName}.pdf`, reportTitle, rows, selectedInclude);
     }
   };
 
@@ -582,10 +875,10 @@ export function ReportsPage({ data }: ReportsPageProps) {
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     {(
                       [
-                        ["metrics", "Metrics"],
+                        ["metrics", "Sensor Metrics"],
                         ["alerts", "Alerts"],
-                        ["charts", "Charts"],
-                        ["notes", "Notes"],
+                        ["charts", "Visual Analysis"],
+                        ["notes", "Cost Notes"],
                       ] as const
                     ).map(([key, label]) => (
                       <button
