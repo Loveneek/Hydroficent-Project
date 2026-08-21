@@ -176,6 +176,28 @@ export type DashboardData = {
     pressureResult: string;
   };
   reports: {
+    analysis: Record<"latest7" | "latest30" | "full", {
+      label: string;
+      startLabel: string;
+      endLabel: string;
+      daysObserved: number;
+      totalVolumeGal: number;
+      avgDailyVolumeGal: number;
+      latestDayVolumeGal: number;
+      peakDayLabel: string;
+      peakDayVolumeGal: number;
+      avgFlowGpm: number;
+      peakFlowGpm: number;
+      avgUpstreamPressurePsi: number;
+      avgDownstreamPressurePsi: number;
+      avgTelemetryPct: number;
+      hourlyProfile: { hour: string; value: number; offHours: boolean }[];
+      modeSummary: {
+        engagedDays: number;
+        bypassedDays: number;
+        totalDays: number;
+      };
+    }>;
     reportTypes: ReportType[];
     recentReports: RecentReport[];
   };
@@ -258,6 +280,48 @@ export function buildDashboardData(raw: PropertyRawData, source: DashboardData["
   const last7Days = completeDays.slice(-7);
   const generatedAlerts = raw.alerts;
   const dashboardKpi = raw.dashboardKpis[0];
+
+  const makeReportAnalysis = (
+    rows: DailyUsageRow[],
+    label: string,
+  ): DashboardData["reports"]["analysis"]["latest7"] => {
+    const periodRows = rows.length ? rows : completeDays;
+    const dates = new Set(periodRows.map((row) => row.local_date));
+    const periodHourlyRows = raw.hourlyUsage.filter((row) => dates.has(row.local_date));
+    const latestDay = periodRows.at(-1) ?? latestCompleteDay;
+    const peakDay = [...periodRows].sort((a, b) => b.total_volume_gal - a.total_volume_gal)[0] ?? latestDay;
+    const hourlyProfile = Array.from({ length: 24 }, (_, hour) => {
+      const hourRows = periodHourlyRows.filter((row) => row.local_hour === hour);
+      return {
+        hour: hourLabel(hour),
+        value: Math.round(average(hourRows.map((row) => row.total_volume_gal))),
+        offHours: hour < 6 || hour >= 21,
+      };
+    });
+
+    return {
+      label,
+      startLabel: formatFullDate(periodRows.at(0)?.local_date ?? latestDay.local_date),
+      endLabel: formatFullDate(periodRows.at(-1)?.local_date ?? latestDay.local_date),
+      daysObserved: periodRows.length,
+      totalVolumeGal: periodRows.reduce((total, row) => total + row.total_volume_gal, 0),
+      avgDailyVolumeGal: average(periodRows.map((row) => row.total_volume_gal)),
+      latestDayVolumeGal: latestDay.total_volume_gal,
+      peakDayLabel: formatFullDate(peakDay.local_date),
+      peakDayVolumeGal: peakDay.total_volume_gal,
+      avgFlowGpm: average(periodRows.map((row) => row.avg_flow_gpm)),
+      peakFlowGpm: Math.max(...periodRows.map((row) => row.max_flow_gpm), 0),
+      avgUpstreamPressurePsi: average(periodRows.map((row) => row.avg_upstream_pressure_psi)),
+      avgDownstreamPressurePsi: average(periodRows.map((row) => row.avg_downstream_pressure_psi)),
+      avgTelemetryPct: average(periodRows.map((row) => row.data_completeness_pct)),
+      hourlyProfile,
+      modeSummary: {
+        engagedDays: periodRows.filter((row) => row.inferred_mode === "Engaged").length,
+        bypassedDays: periodRows.filter((row) => row.inferred_mode === "Bypassed").length,
+        totalDays: periodRows.length,
+      },
+    };
+  };
 
   const dashboardMeta = {
     propertyId: raw.id,
@@ -588,6 +652,11 @@ export function buildDashboardData(raw: PropertyRawData, source: DashboardData["
     { title: "Telemetry Reliability", generated: "Latest refresh", range: `${dashboardMeta.daysObserved} observed days`, format: "PDF" },
     { title: "Water Consumption", generated: "Latest refresh", range: `${Math.round(dashboardMeta.totalVolumeGal).toLocaleString()} gal`, format: "Excel" },
   ];
+  const reportAnalysis = {
+    latest7: makeReportAnalysis(completeDays.slice(-7), "Latest 7 complete days"),
+    latest30: makeReportAnalysis(completeDays.slice(-30), "Latest 30 complete days"),
+    full: makeReportAnalysis(completeDays, dashboardMeta.dataWindowLabel),
+  };
 
   return {
     source,
@@ -603,6 +672,6 @@ export function buildDashboardData(raw: PropertyRawData, source: DashboardData["
       completeness: dailyUsage.map((day) => Math.round(day.data_completeness_pct)),
       pressureResult: `${Math.round(avgPressure)} psi avg`,
     },
-    reports: { reportTypes, recentReports },
+    reports: { analysis: reportAnalysis, reportTypes, recentReports },
   };
 }

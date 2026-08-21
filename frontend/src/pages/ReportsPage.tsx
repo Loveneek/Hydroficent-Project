@@ -68,60 +68,91 @@ export function ReportsPage({ data }: ReportsPageProps) {
 
   const findKpi = (label: string) => data.dashboard.kpis.find((kpi) => kpi.label === label);
 
-  const latestDailyVolume = Number(findKpi("Daily Volume")?.value ?? 0);
-  const currentFlow = Number(findKpi("Water Flow")?.value ?? 0);
-  const upstreamPressure = Number(findKpi("Upstream Pressure")?.value ?? 0);
-  const downstreamPressure = Number(findKpi("Downstream Pressure")?.value ?? 0);
-  const avgDailyUse = parseNumber(data.analytics.analyticsKpis.find((kpi) => kpi.label === "Avg. Daily Use")?.value ?? "0");
-  const peakFlow = parseNumber(data.analytics.analyticsKpis.find((kpi) => kpi.label === "Peak Flow")?.value ?? "0");
-  const totalVolume = data.dashboardMeta.totalVolumeGal;
-  const costPerGal = blendedWaterRatePerThousandGal / 1000;
-  const latestDayCost = latestDailyVolume * costPerGal;
-  const avgDayCost = avgDailyUse * costPerGal;
-  const periodCost = totalVolume * costPerGal;
-  const costDelta = latestDayCost - avgDayCost;
-  const costDeltaLabel =
-    costDelta >= 0
-      ? `${formatMoney(costDelta)} above average day`
-      : `${formatMoney(Math.abs(costDelta))} below average day`;
-  const pressureSpread = upstreamPressure - downstreamPressure;
-  const peakHour = data.dashboard.hourlyUsage.reduce(
-    (best, row) => (row.value > best.value ? row : best),
-    data.dashboard.hourlyUsage[0] ?? { hour: "00:00", value: 0, offHours: false },
-  );
-  const overnightUsage = data.dashboard.hourlyUsage
-    .filter((row) => row.offHours)
-    .reduce((total, row) => total + row.value, 0);
-  const daytimeUsage = data.dashboard.hourlyUsage
-    .filter((row) => !row.offHours)
-    .reduce((total, row) => total + row.value, 0);
+  const reportScopeFor = (reportTitle: string) => {
+    if (reportTitle === "Full Data Summary") return data.reports.analysis.full;
+    if (reportTitle === "Monthly Summary" || reportTitle === "System Performance" || reportTitle === "Water Consumption") {
+      return data.reports.analysis.latest30;
+    }
+    return data.reports.analysis.latest7;
+  };
+
+  const buildReportFacts = (reportTitle: string) => {
+    const scope = reportScopeFor(reportTitle);
+    const currentFlow = Number(findKpi("Water Flow")?.value ?? scope.avgFlowGpm);
+    const baselineDailyUse = parseNumber(data.analytics.analyticsKpis.find((kpi) => kpi.label === "Avg. Daily Use")?.value ?? "0");
+    const costPerGal = blendedWaterRatePerThousandGal / 1000;
+    const periodCost = scope.totalVolumeGal * costPerGal;
+    const latestDayCost = scope.latestDayVolumeGal * costPerGal;
+    const avgDayCost = scope.avgDailyVolumeGal * costPerGal;
+    const baselineDayCost = baselineDailyUse * costPerGal;
+    const costDelta = latestDayCost - avgDayCost;
+    const baselineDelta = latestDayCost - baselineDayCost;
+    const costDeltaLabel =
+      costDelta >= 0
+        ? `${formatMoney(costDelta)} above period average day`
+        : `${formatMoney(Math.abs(costDelta))} below period average day`;
+    const baselineDeltaLabel =
+      baselineDelta >= 0
+        ? `${formatMoney(baselineDelta)} above full-data baseline`
+        : `${formatMoney(Math.abs(baselineDelta))} below full-data baseline`;
+    const pressureSpread = scope.avgUpstreamPressurePsi - scope.avgDownstreamPressurePsi;
+    const peakHour = scope.hourlyProfile.reduce(
+      (best, row) => (row.value > best.value ? row : best),
+      scope.hourlyProfile[0] ?? { hour: "00:00", value: 0, offHours: false },
+    );
+    const overnightUsage = scope.hourlyProfile
+      .filter((row) => row.offHours)
+      .reduce((total, row) => total + row.value, 0);
+    const daytimeUsage = scope.hourlyProfile
+      .filter((row) => !row.offHours)
+      .reduce((total, row) => total + row.value, 0);
+
+    return {
+      scope,
+      currentFlow,
+      baselineDailyUse,
+      costPerGal,
+      periodCost,
+      latestDayCost,
+      avgDayCost,
+      baselineDayCost,
+      costDelta,
+      costDeltaLabel,
+      baselineDeltaLabel,
+      pressureSpread,
+      peakHour,
+      overnightUsage,
+      daytimeUsage,
+    };
+  };
 
   const reportRows = (reportTitle: string, selectedInclude: IncludeOptions): ReportRow[] => {
     const { dashboardMeta } = data;
+    const facts = buildReportFacts(reportTitle);
     const consumptionRows = [
       {
         section: "Consumption" as const,
         name: "Latest Complete Day Volume",
-        value: `${formatNumber(latestDailyVolume)} gal`,
-        note: `${dashboardMeta.latestCompleteDayLabel}; compared with ${formatNumber(avgDailyUse)} gal average day.`,
+        value: `${formatNumber(facts.scope.latestDayVolumeGal)} gal`,
+        note: `${dashboardMeta.latestCompleteDayLabel}; compared with ${formatNumber(facts.scope.avgDailyVolumeGal)} gal/day inside this report period.`,
       },
       {
         section: "Consumption" as const,
-        name: "Period Consumption",
-        value: `${formatNumber(totalVolume)} gal`,
-        note: `Total measured consumption across ${dashboardMeta.daysObserved} observed days.`,
+        name: `${facts.scope.label} Consumption`,
+        value: `${formatNumber(facts.scope.totalVolumeGal)} gal`,
+        note: `Measured from ${facts.scope.startLabel} to ${facts.scope.endLabel} across ${facts.scope.daysObserved} complete days.`,
       },
       {
         section: "Consumption" as const,
         name: "Peak Usage Hour",
-        value: `${peakHour.hour} - ${formatNumber(peakHour.value)} gal`,
-        note: peakHour.offHours ? "Peak occurred during off-hours and should be reviewed." : "Peak occurred during normal operating hours.",
+        value: `${facts.peakHour.hour} - ${formatNumber(facts.peakHour.value)} gal`,
+        note: facts.peakHour.offHours ? "Peak occurred during off-hours and should be reviewed." : "Peak occurred during normal operating hours.",
       },
       {
         section: "Consumption" as const,
         name: "Off-hours Consumption",
-        value: `${formatNumber(overnightUsage)} gal`,
-        note: `${formatNumber(daytimeUsage)} gal occurred during normal operating hours in the average hourly profile.`,
+        value: `${formatNumber(facts.overnightUsage)} gal`,
+        note: `${formatNumber(facts.daytimeUsage)} gal occurred during normal operating hours in the report-period hourly profile.`,
       },
     ];
 
@@ -129,32 +160,35 @@ export function ReportsPage({ data }: ReportsPageProps) {
       {
         section: "Sensors" as const,
         name: "Flow Sensor",
-        value: `${formatNumber(currentFlow, 2)} GPM current`,
-        note: `Peak observed flow is ${formatNumber(peakFlow, 1)} GPM; this is the primary signal for real-time consumption movement.`,
+        value: `${formatNumber(facts.currentFlow, 2)} GPM current`,
+        note: `Peak observed flow in this report period is ${formatNumber(facts.scope.peakFlowGpm, 1)} GPM; this is the primary signal for real-time consumption movement.`,
       },
       {
         section: "Sensors" as const,
         name: "Upstream Pressure",
-        value: `${formatNumber(upstreamPressure, 1)} psi`,
+        value: `${formatNumber(facts.scope.avgUpstreamPressurePsi, 1)} psi avg`,
         note: "Used to confirm supply-side pressure stability while water is being consumed.",
       },
       {
         section: "Sensors" as const,
         name: "Downstream Pressure",
-        value: `${formatNumber(downstreamPressure, 1)} psi`,
-        note: `Pressure spread is ${formatNumber(pressureSpread, 1)} psi between upstream and downstream readings.`,
+        value: `${formatNumber(facts.scope.avgDownstreamPressurePsi, 1)} psi avg`,
+        note: `Average pressure spread is ${formatNumber(facts.pressureSpread, 1)} psi between upstream and downstream readings.`,
       },
       {
         section: "Sensors" as const,
         name: "Device Mode",
         value: data.dashboard.todayDeviceState,
-        note: `${data.dashboard.deviceModeSummary.engagedDays} engaged days and ${data.dashboard.deviceModeSummary.bypassedDays} bypassed days in the displayed mode window.`,
+        note: `${facts.scope.modeSummary.engagedDays} engaged days and ${facts.scope.modeSummary.bypassedDays} bypassed days in this report period.`,
       },
       {
         section: "Sensors" as const,
         name: "Telemetry Coverage",
-        value: `${dashboardMeta.telemetryCompleteness}%`,
-        note: `${dashboardMeta.readingCount.toLocaleString()} readings analyzed from ${dashboardMeta.sourceFiles} source files.`,
+        value: `${Math.round(facts.scope.avgTelemetryPct)}%`,
+        note:
+          dashboardMeta.sourceFiles > 0
+            ? `${dashboardMeta.readingCount.toLocaleString()} readings analyzed from ${dashboardMeta.sourceFiles} source files.`
+            : `${dashboardMeta.readingCount.toLocaleString()} readings analyzed; source file count is not exposed by the hosted data tables.`,
       },
     ];
 
@@ -189,15 +223,15 @@ export function ReportsPage({ data }: ReportsPageProps) {
     const noteRows = [
       {
         section: "Financial Impact" as const,
-        name: "Estimated Period Water Cost",
-        value: formatMoney(periodCost),
-        note: `Calculated with a placeholder blended utility rate of ${formatMoney(blendedWaterRatePerThousandGal)} per 1,000 gallons.`,
+        name: "Estimated Report-Period Water Cost",
+        value: formatMoney(facts.periodCost),
+        note: `${formatNumber(facts.scope.totalVolumeGal)} gal x ${formatMoney(blendedWaterRatePerThousandGal)} per 1,000 gal. Client tariff pending.`,
       },
       {
         section: "Financial Impact" as const,
         name: "Latest Day Cost Movement",
-        value: costDeltaLabel,
-        note: `Latest complete day is ${formatMoney(latestDayCost)} vs. an average day of ${formatMoney(avgDayCost)}. Replace this with the client's actual water and sewer tariff when available.`,
+        value: facts.costDeltaLabel,
+        note: `Latest complete day is ${formatMoney(facts.latestDayCost)} vs. this period's average day of ${formatMoney(facts.avgDayCost)}. Against the full-data baseline, it is ${facts.baselineDeltaLabel}.`,
       },
       {
         section: "Notes" as const,
@@ -223,8 +257,8 @@ export function ReportsPage({ data }: ReportsPageProps) {
       {
         section: "Overview" as const,
         name: "Data Window",
-        value: dashboardMeta.dataWindowLabel,
-        note: `${dashboardMeta.daysObserved} observed days`,
+        value: `${facts.scope.startLabel} to ${facts.scope.endLabel}`,
+        note: `${facts.scope.daysObserved} complete days in this report`,
       },
       {
         section: "Overview" as const,
@@ -293,6 +327,8 @@ export function ReportsPage({ data }: ReportsPageProps) {
 
   const downloadPdf = async (filename: string, reportTitle: string, rows: ReportRow[], selectedInclude: IncludeOptions) => {
     const { jsPDF } = await import("jspdf");
+    const facts = buildReportFacts(reportTitle);
+    const isAlertsReport = reportTitle === "Alerts Report";
     const pdf = new jsPDF();
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
@@ -311,6 +347,19 @@ export function ReportsPage({ data }: ReportsPageProps) {
       pdf.setFillColor(color[0], color[1], color[2]);
     };
 
+    const drawContinuationHeader = () => {
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(9);
+      pdf.setTextColor(...ink);
+      pdf.text(reportTitle, margin, 15);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(8);
+      pdf.setTextColor(...muted);
+      pdf.text(`${data.dashboardMeta.propertyName} | ${facts.scope.startLabel} to ${facts.scope.endLabel}`, margin, 21);
+      pdf.setDrawColor(226, 232, 240);
+      pdf.line(margin, 26, pageWidth - margin, 26);
+    };
+
     const addFooter = () => {
       const pageNumber = pdf.getNumberOfPages();
       pdf.setFont("helvetica", "normal");
@@ -323,7 +372,8 @@ export function ReportsPage({ data }: ReportsPageProps) {
       if (y + neededHeight <= pageHeight - 18) return;
       addFooter();
       pdf.addPage();
-      y = 18;
+      drawContinuationHeader();
+      y = 38;
     };
 
     const sectionTitle = (title: string) => {
@@ -382,12 +432,18 @@ export function ReportsPage({ data }: ReportsPageProps) {
       pdf.text(`${Math.round(pct * 100)}%`, x + width + 5, barY + 3.5);
     };
 
-    const drawHourlyBars = (x: number, chartY: number, width: number, height: number) => {
-      const values = data.dashboard.hourlyUsage.map((row) => row.value);
+    const drawHourlyBars = (
+      profile: { hour: string; value: number; offHours: boolean }[],
+      x: number,
+      chartY: number,
+      width: number,
+      height: number,
+    ) => {
+      const values = profile.map((row) => row.value);
       const maxValue = Math.max(...values, 1);
       const gap = 1.2;
       const barWidth = (width - gap * 23) / 24;
-      data.dashboard.hourlyUsage.forEach((row, index) => {
+      profile.forEach((row, index) => {
         const barHeight = Math.max(2, (row.value / maxValue) * height);
         pdf.setFillColor(row.offHours ? 96 : 6, row.offHours ? 165 : 182, row.offHours ? 250 : 212);
         pdf.roundedRect(x + index * (barWidth + gap), chartY + height - barHeight, barWidth, barHeight, 1, 1, "F");
@@ -401,7 +457,7 @@ export function ReportsPage({ data }: ReportsPageProps) {
     };
 
     const drawModeRibbon = (x: number, ribbonY: number, width: number) => {
-      const history = data.dashboard.deviceModeHistory;
+      const history = data.dashboard.deviceModeHistory.slice(-facts.scope.modeSummary.totalDays);
       const segmentWidth = width / Math.max(history.length, 1);
       history.forEach((day, index) => {
         const color = day.state === "Engaged" ? green : amber;
@@ -411,15 +467,15 @@ export function ReportsPage({ data }: ReportsPageProps) {
       pdf.setFont("helvetica", "normal");
       pdf.setFontSize(7.5);
       pdf.setTextColor(...muted);
-      pdf.text(data.dashboard.deviceModeSummary.startLabel, x, ribbonY + 14);
-      pdf.text(data.dashboard.deviceModeSummary.endLabel, x + width - 16, ribbonY + 14);
+      pdf.text(facts.scope.startLabel, x, ribbonY + 14);
+      pdf.text(facts.scope.endLabel, x + width - 27, ribbonY + 14);
       pdf.setFillColor(...green);
       pdf.circle(x, ribbonY + 22, 1.8, "F");
       pdf.setTextColor(...ink);
-      pdf.text(`${data.dashboard.deviceModeSummary.engagedDays} engaged days`, x + 5, ribbonY + 23);
+      pdf.text(`${facts.scope.modeSummary.engagedDays} engaged days`, x + 5, ribbonY + 23);
       pdf.setFillColor(...amber);
       pdf.circle(x + 54, ribbonY + 22, 1.8, "F");
-      pdf.text(`${data.dashboard.deviceModeSummary.bypassedDays} bypassed days`, x + 59, ribbonY + 23);
+      pdf.text(`${facts.scope.modeSummary.bypassedDays} bypassed days`, x + 59, ribbonY + 23);
     };
 
     const drawRows = (section: ReportRow["section"], limit = 10) => {
@@ -435,7 +491,7 @@ export function ReportsPage({ data }: ReportsPageProps) {
         pdf.setFillColor(255, 255, 255);
         pdf.setDrawColor(224, 234, 240);
         pdf.roundedRect(margin, y - 4, contentWidth, rowHeight, 2.5, 2.5, "FD");
-      if (section === "Alerts") {
+        if (section === "Alerts") {
           const alertColor = row.value === "Active" ? amber : green;
           setFill(alertColor);
           pdf.circle(margin + 5, y + 2, 2, "F");
@@ -470,7 +526,7 @@ export function ReportsPage({ data }: ReportsPageProps) {
     pdf.setFontSize(9);
     pdf.setTextColor(191, 219, 254);
     pdf.text(data.dashboardMeta.propertyName, margin, 42);
-    pdf.text(data.dashboardMeta.dataWindowLabel, margin, 49);
+    pdf.text(`${facts.scope.startLabel} to ${facts.scope.endLabel}`, margin, 49);
     pdf.setFillColor(226, 252, 255);
     pdf.roundedRect(pageWidth - margin - 46, 14, 46, 11, 5.5, 5.5, "F");
     pdf.setFont("helvetica", "bold");
@@ -485,10 +541,10 @@ export function ReportsPage({ data }: ReportsPageProps) {
 
     sectionTitle("Executive Summary");
     const summaryText = [
-      `${data.dashboardMeta.propertyName} has ${data.dashboardMeta.daysObserved} observed days in this reporting period.`,
-      `The latest complete day used ${formatNumber(latestDailyVolume)} gallons against a ${formatNumber(avgDailyUse)} gallon average day.`,
-      `At the placeholder blended utility rate, that day is ${costDeltaLabel.toLowerCase()}.`,
-      `Telemetry completeness is ${data.dashboardMeta.telemetryCompleteness}%, so the report is suitable for review but final billing comparisons should use the client's tariff sheet.`,
+      `${data.dashboardMeta.propertyName} has ${facts.scope.daysObserved} complete days in this ${facts.scope.label.toLowerCase()} report.`,
+      `Total consumption was ${formatNumber(facts.scope.totalVolumeGal)} gallons, averaging ${formatNumber(facts.scope.avgDailyVolumeGal)} gal/day.`,
+      `The latest complete day used ${formatNumber(facts.scope.latestDayVolumeGal)} gallons and is ${facts.costDeltaLabel.toLowerCase()}.`,
+      `Telemetry averaged ${Math.round(facts.scope.avgTelemetryPct)}%, so the report is suitable for operator review. Final billing comparisons should use the client's actual tariff sheet.`,
     ];
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(9.5);
@@ -524,9 +580,9 @@ export function ReportsPage({ data }: ReportsPageProps) {
         margin + 5,
         y + 17,
       );
-      drawProgress(margin + 5, y + 36, 55, "Telemetry", data.dashboardMeta.telemetryCompleteness, 100, green);
+      drawProgress(margin + 5, y + 36, 55, "Telemetry", facts.scope.avgTelemetryPct, 100, green);
       drawProgress(margin + 84, y + 36, 55, "Stability", data.dashboardMeta.stabilityIndex, 100, cyan);
-      drawProgress(margin + 163, y + 36, 20, "Pressure", Math.max(0, 100 - Math.abs(pressureSpread) * 2), 100, pressureSpread > 18 ? amber : green);
+      drawProgress(margin + 163, y + 36, 20, "Pressure", Math.max(0, 100 - Math.abs(facts.pressureSpread) * 2), 100, facts.pressureSpread > 18 ? amber : green);
       y += 62;
     }
 
@@ -563,13 +619,28 @@ export function ReportsPage({ data }: ReportsPageProps) {
       pdf.setFontSize(8);
       pdf.setTextColor(...muted);
       pdf.text("Off-hours are blue; operating hours are cyan. Tall off-hours bars point to possible continuous use.", margin + 5, y + 16);
-      drawHourlyBars(margin + 7, y + 23, contentWidth - 14, 25);
+      drawHourlyBars(facts.scope.hourlyProfile, margin + 7, y + 23, contentWidth - 14, 25);
       y += 69;
 
       sectionTitle("Mode Timeline");
       addPageIfNeeded(44);
-      drawModeRibbon(margin, y, contentWidth);
-      y += 34;
+      if (facts.scope.modeSummary.engagedDays === facts.scope.modeSummary.totalDays || facts.scope.modeSummary.bypassedDays === facts.scope.modeSummary.totalDays) {
+        const modeLabel = facts.scope.modeSummary.engagedDays ? "Device engaged for full report period" : "Device bypassed for full report period";
+        pdf.setFillColor(240, 253, 244);
+        pdf.setDrawColor(187, 247, 208);
+        pdf.roundedRect(margin, y, contentWidth, 22, 3, 3, "FD");
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(10);
+        pdf.setTextColor(22, 101, 52);
+        pdf.text(modeLabel, margin + 5, y + 9);
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(8);
+        pdf.text("A segmented timeline is hidden because every complete day had the same mode state.", margin + 5, y + 16);
+        y += 30;
+      } else {
+        drawModeRibbon(margin, y, contentWidth);
+        y += 34;
+      }
       drawRows("Charts", 8);
     }
 
@@ -582,13 +653,13 @@ export function ReportsPage({ data }: ReportsPageProps) {
       pdf.setFont("helvetica", "bold");
       pdf.setFontSize(10);
       pdf.setTextColor(120, 53, 15);
-      pdf.text(`${costDelta >= 0 ? "Increase" : "Reduction"} vs. average day: ${costDeltaLabel}`, margin + 5, y + 9);
+      pdf.text(`${facts.costDelta >= 0 ? "Increase" : "Reduction"} vs. period average: ${facts.costDeltaLabel}`, margin + 5, y + 9);
       pdf.setFont("helvetica", "normal");
       pdf.setFontSize(8);
       pdf.setTextColor(120, 53, 15);
       pdf.text(
         pdf.splitTextToSize(
-          `This uses ${formatMoney(blendedWaterRatePerThousandGal)} per 1,000 gallons as a planning rate. The math is: gallons above or below the average day multiplied by ${formatRate(costPerGal)} per gallon. Final client reporting should replace this placeholder with the property's actual water and sewer rates.`,
+          `This uses ${formatMoney(blendedWaterRatePerThousandGal)} per 1,000 gallons as a planning rate. Formula: (${formatNumber(facts.scope.latestDayVolumeGal)} gal latest day - ${formatNumber(facts.scope.avgDailyVolumeGal)} gal average day) x ${formatRate(facts.costPerGal)} per gallon. Client tariff pending.`,
           contentWidth - 10,
         ),
         margin + 5,
@@ -600,7 +671,32 @@ export function ReportsPage({ data }: ReportsPageProps) {
     }
 
     if (selectedInclude.alerts) {
-      drawRows("Alerts", 12);
+      const alertRows = rows.filter((row) => row.section === "Alerts");
+      if (alertRows.length) {
+        sectionTitle("Alert Summary");
+        addPageIfNeeded(26);
+        const activeCount = data.alerts.activeAlerts.length;
+        const visibleAlertCount = isAlertsReport ? Math.min(alertRows.length, 12) : Math.min(alertRows.length, 5);
+        pdf.setFillColor(255, 255, 255);
+        pdf.setDrawColor(220, 232, 238);
+        pdf.roundedRect(margin, y, contentWidth, 22, 3, 3, "FD");
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(10);
+        pdf.setTextColor(...ink);
+        pdf.text(`${activeCount} active alerts | ${alertRows.length} total generated alerts`, margin + 5, y + 8);
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(8);
+        pdf.setTextColor(...muted);
+        pdf.text(
+          isAlertsReport
+            ? "Detailed alert report: showing the most recent generated alerts."
+            : `Summary report: showing top ${visibleAlertCount} alerts only. Use Alerts Report for the full review list.`,
+          margin + 5,
+          y + 16,
+        );
+        y += 29;
+      }
+      drawRows("Alerts", isAlertsReport ? 12 : 5);
     }
 
     addFooter();
