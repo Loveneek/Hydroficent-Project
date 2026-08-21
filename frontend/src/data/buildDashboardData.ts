@@ -407,13 +407,17 @@ export function buildDashboardData(raw: PropertyRawData, source: DashboardData["
     },
   ];
 
-  const allAlerts: AlertRecord[] = generatedAlerts.map((alert, index) => ({
+  const sortedGeneratedAlerts = [...generatedAlerts].sort(
+    (a, b) => new Date(b.local_date).getTime() - new Date(a.local_date).getTime(),
+  );
+  const activeAlertLimit = Math.min(4, sortedGeneratedAlerts.length);
+  const allAlerts: AlertRecord[] = sortedGeneratedAlerts.map((alert, index) => ({
     id: `${alert.alert_type.toLowerCase().replaceAll(" ", "-")}-${alert.local_date}-${index}`,
     title: titleFor(alert),
     time: formatDate(alert.local_date, { year: "numeric" }),
     action: alert.operator_note,
     severity: alert.severity,
-    status: index < 4 ? "Active" : "Resolved",
+    status: index < activeAlertLimit ? "Active" : "Resolved",
   }));
   const activeAlerts = allAlerts.filter((alert) => alert.status === "Active");
   const issueCounts = generatedAlerts.reduce<Record<string, number>>((acc, alert) => {

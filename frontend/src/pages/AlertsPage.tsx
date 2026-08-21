@@ -32,12 +32,37 @@ export function AlertsPage({ data }: AlertsPageProps) {
   const { dashboardMeta } = data;
   const { events } = data.dashboard;
   const { alertFrequency, allAlerts, alertsKpis, severityBreakdown } = data.alerts;
+  const severityOptions = ["All Severities", "Critical", "Warning", "Info"] as const;
+  const statusOptions = ["Active", "Resolved", "All"] as const;
+
+  const severityCounts = allAlerts.reduce<Record<(typeof severityOptions)[number], number>>(
+    (acc, alert) => {
+      acc["All Severities"] += 1;
+      if (alert.severity === "critical") acc.Critical += 1;
+      if (alert.severity === "warning") acc.Warning += 1;
+      if (alert.severity === "info") acc.Info += 1;
+      return acc;
+    },
+    { "All Severities": 0, Critical: 0, Warning: 0, Info: 0 },
+  );
+
+  const statusCounts = allAlerts.reduce<Record<(typeof statusOptions)[number], number>>(
+    (acc, alert) => {
+      acc.All += 1;
+      acc[alert.status] += 1;
+      return acc;
+    },
+    { Active: 0, Resolved: 0, All: 0 },
+  );
 
   const filteredAlerts = allAlerts.filter((alert) => {
     const matchesSeverity =
       severityFilter === "All Severities" || alert.severity === severityFilter.toLowerCase();
     const matchesStatus = statusFilter === "All" || alert.status === statusFilter;
     return matchesSeverity && matchesStatus;
+  }).sort((a, b) => {
+    if (a.status !== b.status) return a.status === "Active" ? -1 : 1;
+    return a.time.localeCompare(b.time);
   });
 
   return (
@@ -89,7 +114,7 @@ export function AlertsPage({ data }: AlertsPageProps) {
               Filter
             </span>
             <div className="flex flex-wrap gap-2">
-              {(["All Severities", "Critical", "Warning", "Info"] as const).map((label) => (
+              {severityOptions.map((label) => (
                 <button
                   key={label}
                   onClick={() => setSeverityFilter(label)}
@@ -99,13 +124,13 @@ export function AlertsPage({ data }: AlertsPageProps) {
                       : "bg-white/[0.04] text-[var(--text-secondary)] hover:bg-white/[0.07]"
                   }`}
                 >
-                  {label}
+                  {label} <span className="text-[var(--text-tertiary)]">({severityCounts[label]})</span>
                 </button>
               ))}
             </div>
             <span className="h-4 w-px bg-white/[0.08]" />
             <div className="flex flex-wrap gap-2">
-              {(["Active", "Resolved", "All"] as const).map((label) => (
+              {statusOptions.map((label) => (
                 <button
                   key={label}
                   onClick={() => setStatusFilter(label)}
@@ -115,10 +140,28 @@ export function AlertsPage({ data }: AlertsPageProps) {
                       : "bg-white/[0.04] text-[var(--text-secondary)] hover:bg-white/[0.07]"
                   }`}
                 >
-                  {label}
+                  {label} <span className="text-[var(--text-tertiary)]">({statusCounts[label]})</span>
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white/[0.025] px-4 py-3 text-sm">
+            <p className="text-[var(--text-secondary)]">
+              Showing <span className="font-semibold text-[var(--text-primary)]">{filteredAlerts.length}</span> of{" "}
+              <span className="font-semibold text-[var(--text-primary)]">{allAlerts.length}</span> alerts
+            </p>
+            {(severityFilter !== "All Severities" || statusFilter !== "All") && (
+              <button
+                onClick={() => {
+                  setSeverityFilter("All Severities");
+                  setStatusFilter("All");
+                }}
+                className="rounded-lg px-3 py-1.5 text-xs font-semibold text-[var(--accent)] transition-colors duration-150 hover:bg-white/[0.05]"
+              >
+                Clear filters
+              </button>
+            )}
           </div>
 
           <div className="mt-5 grid gap-3">
