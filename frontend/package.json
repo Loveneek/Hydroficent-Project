@@ -1,0 +1,43 @@
+{
+  "name": "hydroficient-operator-dashboard",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:audi": "VITE_PROPERTY_ID=pfaff-audi-newmarket vite",
+    "dev:save": "VITE_PROPERTY_ID=save-on-foods-scottsdale-mall vite",
+    "data:audi": "cd ../backend && .venv/bin/python -m etl.prepare_frontend_data pfaff-audi-newmarket",
+    "data:save": "cd ../backend && .venv/bin/python -m etl.prepare_frontend_data save-on-foods-scottsdale-mall",
+    "supabase:export": "cd ../backend && .venv/bin/python -m etl.export_dashboard_to_supabase all",
+    "supabase:export:existing": "cd ../backend && .venv/bin/python -m etl.export_dashboard_to_supabase all --no-rebuild",
+    "build": "tsc -b && vite build",
+    "build:audi": "VITE_PROPERTY_ID=pfaff-audi-newmarket tsc -b && VITE_PROPERTY_ID=pfaff-audi-newmarket vite build",
+    "build:save": "VITE_PROPERTY_ID=save-on-foods-scottsdale-mall tsc -b && VITE_PROPERTY_ID=save-on-foods-scottsdale-mall vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.29.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "recharts": "^3.10.1",
+    "tailwindcss": "^4.3.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.4",
+    "eslint": "^10.8.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.3",
+    "globals": "^17.7.0",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.65.0",
+    "vite": "^8.2.0"
+  }
+}

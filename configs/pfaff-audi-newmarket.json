@@ -1,0 +1,30 @@
+{
+  "client_id": "pfaff-audi-newmarket",
+  "client_name": "Pfaff Audi",
+  "property_id": "pfaff-audi-newmarket",
+  "property_name": "Pfaff Audi Newmarket",
+  "timezone": "America/Toronto",
+  "meter_type": "mag",
+  "raw_csv_dir": "../Pfaff Audi Newmarket",
+  "serial_number": "HF1000017",
+  "business_hours": {
+    "open": "06:00",
+    "close": "21:00"
+  },
+  "columns": {
+    "timestamp_ms": "ts",
+    "flow_lps": "flow",
+    "total_liters": "postotal",
+    "serial_number": "serialnumber",
+    "upstream_pressure_prefix": "up",
+    "downstream_pressure_prefix": "dp",
+    "gate_a_prefix": "ga",
+    "gate_b_prefix": "gb"
+  },
+  "thresholds": {
+    "continuous_flow_minutes": 30,
+    "high_pressure_psi": 75,
+    "low_data_completeness_percent": 90,
+    "gate_active_std_threshold": 0.05
+  }
+}

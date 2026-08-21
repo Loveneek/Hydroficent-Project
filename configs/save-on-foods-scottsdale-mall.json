@@ -1,0 +1,30 @@
+{
+  "client_id": "save-on-foods",
+  "client_name": "Save-On-Foods",
+  "property_id": "save-on-foods-scottsdale-mall",
+  "property_name": "Save-On-Foods Scottsdale Mall",
+  "timezone": "America/Vancouver",
+  "meter_type": "mag",
+  "raw_csv_dir": "../Save-On-Foods Scottsdale Mall",
+  "serial_number": "HF1000004",
+  "business_hours": {
+    "open": "07:00",
+    "close": "22:00"
+  },
+  "columns": {
+    "timestamp_ms": "ts",
+    "flow_lps": "flow",
+    "total_liters": "postotal",
+    "serial_number": "serialnumber",
+    "upstream_pressure_prefix": "up",
+    "downstream_pressure_prefix": "dp",
+    "gate_a_prefix": "ga",
+    "gate_b_prefix": "gb"
+  },
+  "thresholds": {
+    "continuous_flow_minutes": 30,
+    "high_pressure_psi": 75,
+    "low_data_completeness_percent": 90,
+    "gate_active_std_threshold": 0.05
+  }
+}
