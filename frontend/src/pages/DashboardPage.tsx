@@ -39,6 +39,18 @@ export function DashboardPage({ data }: DashboardPageProps) {
     kpis,
     trendData,
   } = data.dashboard;
+  const pressureTrendData = trendData.filter(
+    (point) => Number.isFinite(point.pressureUp) && Number.isFinite(point.pressureDown),
+  );
+  const pressureValues = pressureTrendData.flatMap((point) => [point.pressureUp, point.pressureDown]);
+  const pressureMin = Math.min(...pressureValues);
+  const pressureMax = Math.max(...pressureValues);
+  const pressurePadding = Math.max(4, Math.round((pressureMax - pressureMin) * 0.2));
+  const pressureDomain: [number, number] = pressureValues.length
+    ? [Math.max(0, Math.floor(pressureMin - pressurePadding)), Math.ceil(pressureMax + pressurePadding)]
+    : [0, 100];
+  const stableBandStart = Math.max(pressureDomain[0], 45);
+  const stableBandEnd = Math.min(pressureDomain[1], 80);
 
   return (
     <>
@@ -277,45 +289,61 @@ export function DashboardPage({ data }: DashboardPageProps) {
             </div>
 
             <div className="mt-6 h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={trendData} margin={{ top: 10, right: 18, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="pressureUpFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="var(--success)" stopOpacity={0.32} />
-                      <stop offset="95%" stopColor="var(--success)" stopOpacity={0.02} />
-                    </linearGradient>
-                  </defs>
-                  <ReferenceArea y1={65} y2={80} fill="var(--success)" fillOpacity={0.06} />
-                  <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
-                  <XAxis dataKey="time" tick={{ fill: "var(--text-tertiary)", fontSize: 12 }} tickLine={false} axisLine={false} />
-                  <YAxis domain={[55, 85]} tick={{ fill: "var(--text-tertiary)", fontSize: 12 }} tickLine={false} axisLine={false} width={34} />
-                  <Tooltip content={<DarkTooltip />} />
-                  <Area
-                    isAnimationActive
-                    animationDuration={900}
-                    animationEasing="ease-out"
-                    type="monotone"
-                    dataKey="pressureUp"
-                    name="Upstream"
-                    stroke="var(--success)"
-                    strokeWidth={3}
-                    fill="url(#pressureUpFill)"
-                    dot={false}
-                  />
-                  <Area
-                    isAnimationActive
-                    animationDuration={900}
-                    animationEasing="ease-out"
-                    type="monotone"
-                    dataKey="pressureDown"
-                    name="Downstream"
-                    stroke="var(--info)"
-                    strokeWidth={2.5}
-                    fill="none"
-                    dot={false}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+              {pressureTrendData.length ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={pressureTrendData} margin={{ top: 10, right: 18, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="pressureUpFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="var(--success)" stopOpacity={0.32} />
+                        <stop offset="95%" stopColor="var(--success)" stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
+                    {stableBandEnd > stableBandStart && (
+                      <ReferenceArea y1={stableBandStart} y2={stableBandEnd} fill="var(--success)" fillOpacity={0.06} />
+                    )}
+                    <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
+                    <XAxis dataKey="time" tick={{ fill: "var(--text-tertiary)", fontSize: 12 }} tickLine={false} axisLine={false} />
+                    <YAxis
+                      domain={pressureDomain}
+                      tick={{ fill: "var(--text-tertiary)", fontSize: 12 }}
+                      tickLine={false}
+                      axisLine={false}
+                      width={34}
+                    />
+                    <Tooltip content={<DarkTooltip />} />
+                    <Area
+                      isAnimationActive
+                      animationDuration={900}
+                      animationEasing="ease-out"
+                      type="monotone"
+                      dataKey="pressureUp"
+                      name="Upstream"
+                      stroke="var(--success)"
+                      strokeWidth={3}
+                      fill="url(#pressureUpFill)"
+                      dot={false}
+                    />
+                    <Area
+                      isAnimationActive
+                      animationDuration={900}
+                      animationEasing="ease-out"
+                      type="monotone"
+                      dataKey="pressureDown"
+                      name="Downstream"
+                      stroke="var(--info)"
+                      strokeWidth={2.5}
+                      fill="none"
+                      dot={false}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-white/[0.08] bg-white/[0.02] text-center">
+                  <p className="max-w-sm text-sm leading-relaxed text-[var(--text-secondary)]">
+                    Pressure readings are not available for the latest complete day.
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-[var(--text-secondary)]">
