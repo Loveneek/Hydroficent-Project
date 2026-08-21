@@ -102,6 +102,7 @@ export type DashboardData = {
   };
   dashboard: {
     trendData: TrendPoint[];
+    pressureTrendLabel: string;
     hourlyUsage: { hour: string; value: number; offHours: boolean }[];
     deviceModeHistory: { date: string; state: "Engaged" | "Bypassed" }[];
     todayDeviceState: "Engaged" | "Bypassed";
@@ -276,6 +277,24 @@ export function buildDashboardData(raw: PropertyRawData, source: DashboardData["
   const latestCompleteDay = completeDays.at(-1) ?? dailyUsage.at(-1)!;
   const latestCompleteDate = latestCompleteDay.local_date;
   const latestCompleteHourlyRows = raw.hourlyUsage.filter((row) => row.local_date === latestCompleteDate);
+  const hasPressureReadings = (localDate: string) =>
+    raw.hourlyUsage.some(
+      (row) =>
+        row.local_date === localDate &&
+        Number.isFinite(row.avg_upstream_pressure_psi) &&
+        Number.isFinite(row.avg_downstream_pressure_psi) &&
+        row.avg_upstream_pressure_psi > 0 &&
+        row.avg_downstream_pressure_psi > 0,
+    );
+  const latestPressureDay = [...completeDays].reverse().find((day) => hasPressureReadings(day.local_date)) ?? latestCompleteDay;
+  const pressureHourlyRows = raw.hourlyUsage.filter(
+    (row) =>
+      row.local_date === latestPressureDay.local_date &&
+      Number.isFinite(row.avg_upstream_pressure_psi) &&
+      Number.isFinite(row.avg_downstream_pressure_psi) &&
+      row.avg_upstream_pressure_psi > 0 &&
+      row.avg_downstream_pressure_psi > 0,
+  );
   const previous30Days = completeDays.slice(-30);
   const last7Days = completeDays.slice(-7);
   const generatedAlerts = raw.alerts;
@@ -339,12 +358,13 @@ export function buildDashboardData(raw: PropertyRawData, source: DashboardData["
     telemetryCompleteness: Math.round(average(completeDays.map((day) => day.data_completeness_pct))),
   };
 
-  const trendData: TrendPoint[] = latestCompleteHourlyRows.map((row) => ({
+  const trendData: TrendPoint[] = pressureHourlyRows.map((row) => ({
     time: hourLabel(row.local_hour),
     flow: Number(row.avg_flow_gpm.toFixed(2)),
     pressureUp: Number(row.avg_upstream_pressure_psi.toFixed(2)),
     pressureDown: Number(row.avg_downstream_pressure_psi.toFixed(2)),
   }));
+  const pressureTrendLabel = formatFullDate(latestPressureDay.local_date);
 
   const hourlyUsage = Array.from({ length: 24 }, (_, hour) => {
     const rows = raw.hourlyUsage.filter((row) => row.local_hour === hour);
@@ -661,7 +681,7 @@ export function buildDashboardData(raw: PropertyRawData, source: DashboardData["
   return {
     source,
     dashboardMeta,
-    dashboard: { trendData, hourlyUsage, deviceModeHistory, todayDeviceState, deviceModeSummary, kpis, compareStats, events },
+    dashboard: { trendData, pressureTrendLabel, hourlyUsage, deviceModeHistory, todayDeviceState, deviceModeSummary, kpis, compareStats, events },
     alerts: { allAlerts, activeAlerts, alertFrequency, severityBreakdown, alertsKpis },
     analytics: {
       weeklyVolumeTrend,

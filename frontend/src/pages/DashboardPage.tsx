@@ -37,10 +37,15 @@ export function DashboardPage({ data }: DashboardPageProps) {
     events,
     hourlyUsage,
     kpis,
+    pressureTrendLabel,
     trendData,
   } = data.dashboard;
   const pressureTrendData = trendData.filter(
-    (point) => Number.isFinite(point.pressureUp) && Number.isFinite(point.pressureDown),
+    (point) =>
+      Number.isFinite(point.pressureUp) &&
+      Number.isFinite(point.pressureDown) &&
+      point.pressureUp > 0 &&
+      point.pressureDown > 0,
   );
   const pressureValues = pressureTrendData.flatMap((point) => [point.pressureUp, point.pressureDown]);
   const pressureMin = Math.min(...pressureValues);
@@ -280,7 +285,7 @@ export function DashboardPage({ data }: DashboardPageProps) {
                   Upstream vs Downstream Pressure
                 </h2>
                 <p className="mt-1 text-sm text-[var(--text-secondary)]">
-                  Inlet vs outlet pressure by hour, {dashboardMeta.latestCompleteDayLabel}.
+                  Inlet vs outlet pressure by hour, last available pressure day: {pressureTrendLabel}.
                 </p>
               </div>
               <span className="rounded-full bg-[color:var(--success-soft)] px-3 py-1 text-xs font-semibold text-[var(--success)]">
